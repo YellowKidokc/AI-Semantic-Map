@@ -246,3 +246,4 @@ Inspired by [obsidian-note-definitions](https://github.com/dominiclet/obsidian-n
 **Built with [Claude](https://claude.ai) (Anthropic) & TypeScript for Obsidian.**
 
 *This plugin was developed with assistance from Claude, Anthropic's AI assistant.*
+
