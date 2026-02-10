@@ -3,9 +3,10 @@
  * Track the evolution of a concept across documents with AI analysis
  */
 
-import { ItemView, WorkspaceLeaf, setIcon } from 'obsidian';
-import { SemanticTag, TagType, VaultIndex } from '../types';
-import { ConceptRegistry, ConceptRegistryEntry } from '../tagging/concept-registry';
+import { ItemView, WorkspaceLeaf } from 'obsidian';
+import { SemanticTag, TagType } from '../types';
+import { VaultIndex } from '../indexing/vault-indexer';
+import { ConceptRegistry } from '../tagging/concept-registry';
 
 export const CONCEPT_JOURNEY_VIEW_TYPE = 'concept-journey-view';
 
@@ -81,7 +82,7 @@ export class ConceptJourneyView extends ItemView {
    */
   setDataSources(
     registry: ConceptRegistry,
-    index: VaultIndex,
+    index: VaultIndex | null,
     onOpenFile: (filePath: string) => void,
     onAnalyzeRequest: (journey: ConceptJourney) => Promise<JourneyAnalysis>,
     onGenerateForwardLinks: (journey: ConceptJourney) => Promise<void>
@@ -261,49 +262,52 @@ export class ConceptJourneyView extends ItemView {
       return { concept, aliases: this.aliases, occurrences: [], typeProgression: [], relatedConcepts: [] };
     }
 
-    // Search through all indexed concepts
+    // Search through indexed concepts
     let order = 0;
-    for (const [conceptKey, conceptData] of Object.entries(this.index.concepts)) {
-      const normalizedKey = conceptKey.toLowerCase();
+    const matchedFiles = new Set<string>();
 
-      // Check if this concept matches our search terms
+    for (const [conceptKey, conceptData] of this.index.concepts.entries()) {
+      const normalizedKey = conceptKey.toLowerCase();
       const matches = searchTerms.some(term =>
         normalizedKey.includes(term) || term.includes(normalizedKey)
       );
 
-      if (matches) {
-        for (const fileRef of conceptData.files) {
-          occurrences.push({
-            file: fileRef.file,
-            fileName: fileRef.file.split('/').pop() || fileRef.file,
-            tag: {
-              type: conceptData.type,
-              uuid: conceptData.uuid,
-              label: conceptData.label,
-              parentUuid: null
-            },
-            order: order++
-          });
+      if (!matches) {
+        continue;
+      }
 
-          // Track type progression
-          const typeKey = `${conceptData.type}-${fileRef.file}`;
-          if (!typeCount.has(typeKey)) {
-            typeCount.set(typeKey, {
-              type: conceptData.type,
-              file: fileRef.file,
-              count: 1
-            });
-          } else {
-            typeCount.get(typeKey)!.count++;
-          }
+      for (const occurrence of conceptData.occurrences) {
+        occurrences.push({
+          file: occurrence.filePath,
+          fileName: occurrence.fileName,
+          tag: {
+            type: occurrence.tagType,
+            uuid: occurrence.tagUuid,
+            label: occurrence.label,
+            parentUuid: null
+          },
+          order: order++
+        });
+
+        matchedFiles.add(occurrence.filePath);
+
+        const typeKey = `${occurrence.tagType}-${occurrence.filePath}`;
+        if (!typeCount.has(typeKey)) {
+          typeCount.set(typeKey, {
+            type: occurrence.tagType,
+            file: occurrence.filePath,
+            count: 1
+          });
+        } else {
+          typeCount.get(typeKey)!.count++;
         }
-      } else {
-        // Check if this concept appears in same files as our search - it's related
-        for (const fileRef of conceptData.files) {
-          if (occurrences.some(o => o.file === fileRef.file)) {
-            relatedSet.add(conceptData.label);
-          }
-        }
+      }
+    }
+
+    for (const conceptData of this.index.concepts.values()) {
+      const sharesFile = conceptData.occurrences.some(occurrence => matchedFiles.has(occurrence.filePath));
+      if (sharesFile && !searchTerms.includes(conceptData.normalizedLabel)) {
+        relatedSet.add(conceptData.label);
       }
     }
 
